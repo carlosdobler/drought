@@ -9,7 +9,7 @@ options(future.rng.onMisuse = "ignore")
 
 plan(multicore)
 
-dest_dir <- "/mnt/pers_disk/tmp"
+dir_data <- "/mnt/pers_disk/tmp"
 
 source("monitor_forecast/functions.R")
 
@@ -33,7 +33,7 @@ walk2(vars, vars_long, \(var, var_l) {
                       var)
       
       f <- 
-        str_glue("{dest_dir}/nmme_{mod}_{var}_mon_{as_date(d)}_plus5_pre.nc")
+        str_glue("{dir_data}/nmme_{mod}_{var_l}_mon_{as_date(d)}_plus5_pre.nc")
       
       download.file(url, f, method = "wget", quiet = T)
       
@@ -52,32 +52,16 @@ walk2(vars, vars_long, \(var, var_l) {
       
       fs::file_delete(f)
       
-    })
+    })  
     
   }
   
 })
 
 
+fs::dir_delete(dir_data)
 
 
-
-
-
-
-
-
-
-
-
-
-
-# ******
-
-
-
-
-"gcloud storage mv"
 
 
 

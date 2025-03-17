@@ -70,7 +70,7 @@ formatter <- function(f, variable, lead = 5) {
   # extract units
   un <- 
     ncmeta::nc_atts(f) |> 
-    filter(variable == variable) |> 
+    filter(variable == {{variable}}) |> 
     filter(name == "units") |> 
     pull(value) |> 
     pluck(1)
@@ -89,8 +89,7 @@ formatter <- function(f, variable, lead = 5) {
     
     s <- 
       s |> 
-      mutate(!!sym(variable) := units::set_units(!!sym(variable), K)) |> 
-      mutate(!!sym(variable) := units::set_units(!!sym(variable), degC))
+      mutate(!!sym(variable) := units::set_units(!!sym(variable), K))
     
   }
   
