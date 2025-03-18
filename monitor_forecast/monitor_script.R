@@ -1,7 +1,7 @@
 
 # SCRIPT TO CALCULATE MONTHLY DROUGHT WITH ERA5 
 # BASED ON A MODIFIED SPEI METHODOLOGY 
-# USES THORNWHAITES FORMULATION TO CALCULATE PET
+# (USES THORNWHAITES FORMULATION TO CALCULATE PET)
 
 
 date_to_proc <- "2025-02-01"
@@ -152,7 +152,7 @@ if (date_to_proc %in% existing_dates) {
   
   s_wb <- 
     tri_month |> 
-    map(wb_calculator, dir = dir_tmp, heat_vars = heat_vars)
+    map(wb_calculator, dir = dir_tmp, heat_vars = heat_vars, tas_pr = F)
   
   
   s_wb <- 
@@ -173,7 +173,7 @@ if (date_to_proc %in% existing_dates) {
   
   # import baseline parameters
   f_distr <- 
-    str_glue("era5_water-balance-th-rollsum3_mon_gamma-params_1991-2000_{str_pad(month(as_date(date_to_proc)), 2, 'left', '0')}.nc")
+    str_glue("era5_water-balance-th-rollsum3_mon_log-params_1991-2020_{str_pad(month(as_date(date_to_proc)), 2, 'left', '0')}.nc")
   
   str_glue("gcloud storage cp {dir_gs}/climatologies/{f_distr} {tempdir()}") |> 
     system()
@@ -195,7 +195,7 @@ if (date_to_proc %in% existing_dates) {
         NA
       } else {
         
-        lmom::cdfgam(x[1] + x[2], c(x[3], x[4]))
+        lmom::cdfglo(x[1], c(x[2], x[3], x[4]))
         
       }
       

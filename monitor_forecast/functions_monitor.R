@@ -57,26 +57,28 @@ heat_index_var_generator <- function() {
 
 
 
-wb_calculator <- function(d, dir, heat_vars) {
+wb_calculator <- function(d, dir, heat_vars, tas_pr = T) {
   
   # ARGUMENTS:
   # * d = date to process
   # * dir = path where ERA5 temperature and precip data are stored
   # * heat_vars = list obtained with heat_index_generator function
+  # * tas_pr = should underlying tas and pr data be provided?
   
   
   # read tmp data > format
   s_tas <-
     read_ncdf(str_glue("{dir}/era5_2m-temperature_mon_{as_date(d)}.nc")) |>
     suppressMessages() |>
-    adrop() |> 
-    mutate(t2m = t2m %>% units::set_units(degC)) %>%
-    units::drop_units()
+    adrop()
   
   
   # calculate PET
   s_pet <-
-    c(s_tas, heat_vars$s_hi, heat_vars$s_alpha, pluck(heat_vars$K_mon, month(d))) |>
+    c(s_tas |> 
+        mutate(t2m = t2m %>% units::set_units(degC)) %>%
+        units::drop_units(),
+      heat_vars$s_hi, heat_vars$s_alpha, pluck(heat_vars$K_mon, month(d))) |>
     
     mutate(t2m = if_else(t2m < 0, 0, t2m),
            pet = K * 16 * (10 * t2m / ann_h_ind)^alpha,
@@ -99,6 +101,13 @@ wb_calculator <- function(d, dir, heat_vars) {
     mutate(wb = tp - pet) |> 
     select(wb)
   
-  return(s_wb)
+  if (tas_pr) {
+    r <- list(wb = s_wb, tas = s_tas, pr = s_pr)
+  } else {
+    r <- s_wb
+  }
+  
+  
+  return(r)
   
 }
