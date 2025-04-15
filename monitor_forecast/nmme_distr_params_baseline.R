@@ -15,9 +15,10 @@ plan(multicore)
 
 # load special functions
 source("https://raw.github.com/carlosdobler/spatial-routines/master/general_tools.R")
+source("monitor_forecast/functions.R")
 
 # load nmme models table
-source("monitor_forecast/df_sources_nmme.R")
+source("monitor_forecast/nmme_sources_df.R")
 
 
 # temporary directory to save files
@@ -46,16 +47,16 @@ for (mod in df_sources$model) {
   ff <- 
     map(vars |> set_names(), \(var) {
       
-      ff <- 
+      f <- 
         rt_gs_list_files(str_glue("{dir_gs}/monthly/{mod}/{var}")) |> 
         str_subset(str_flatten(seq(year(first(date_vector)), year(last(date_vector))), "|"))
       
-      ff <-
-        rt_gs_download_files(ff, dir_tmp)
-      # ff <- 
-      #   str_glue("{dir_tmp}/{fs::path_file(ff)}")
+      f <-
+        rt_gs_download_files(f, dir_tmp)
+      # f <-
+      #   str_glue("{dir_tmp}/{fs::path_file(f)}")
       
-      return(ff)
+      return(f)
       
     })
   
@@ -71,7 +72,7 @@ for (mod in df_sources$model) {
       # (2 variables; 30 years)
       ff_m <- 
         ff |> 
-        map(\(f) str_subset(f, str_glue("-{m}-")))
+        map(\(f) str_subset(f, str_glue("-{mon}-")))
       
       
       ff_m |>
@@ -89,14 +90,25 @@ for (mod in df_sources$model) {
             do.call(c, c(ss, along = "M"))
           
           
+          # convert precip units: mm -> m
+          if (i == "precipitation") {
+            
+            ss <- 
+              ss |> 
+              mutate(prec = prec |> units::set_units(m/d))
+            
+          }
+          
+          
           # for each lead step
-          seq_len(dim(ss)["L"]) |> 
-            walk(\(lead_in) {
+          r <- 
+            seq(dim(ss)["L"]) |> 
+            map(\(lead_in) {
               
               print(str_glue("      PROCESSING VARIABLE {i}  |  LEAD {lead_in}"))
               
               
-              r <- 
+              s <- 
                 ss |> 
                 # subset lead step
                 slice(L, lead_in) |> 
@@ -119,7 +131,7 @@ for (mod in df_sources$model) {
                       
                     }
                     
-                  # logistic dist for precipitation
+                    # logistic dist for precipitation
                   } else if (i == "precipitation") {
                     
                     if(any(is.na(x))) {
@@ -149,19 +161,24 @@ for (mod in df_sources$model) {
                 .fname = "params") |> 
                 split("params")
               
-              # result file name
-              f <- 
-                case_when(i == "average_temperature" ~ str_glue("{dir_tmp}/nmme_{mod}_average-temperature_mon_norm-params_1991-2020_{mon}_lead-{lead_in-1}.nc"),
-                          i == "precipitation" ~ str_glue("{dir_tmp}/nmme_{mod}_precipitation_mon_gamma-params_1991-2020_{mon}_lead-{lead_in-1}.nc"))
-              
-              # write to disk
-              rt_write_nc(r, f)
-              
-              # move to bucket
-              str_glue("gcloud storage mv {f} gs://clim_data_reg_useast1/nmme/climatologies/{mod}/") |> 
-                system(ignore.stdout = T, ignore.stderr = T)
+              return(s)
               
             })
+          
+          r <- 
+            do.call(c, c(r, along = "L"))
+          
+          # result file name
+          f <- 
+            case_when(i == "average_temperature" ~ str_glue("{dir_tmp}/nmme_{mod}_average-temperature_mon_norm-params_1991-2020_{mon}_plus5.nc"),
+                      i == "precipitation" ~ str_glue("{dir_tmp}/nmme_{mod}_precipitation_mon_gamma-params_1991-2020_{mon}_plus5.nc"))
+          
+          # write to disk
+          write_nc(r, f)
+          
+          # move to bucket
+          str_glue("gcloud storage mv {f} gs://clim_data_reg_useast1/nmme/climatologies/{mod}/") |>
+            system(ignore.stdout = T, ignore.stderr = T)
           
         })
       
@@ -171,18 +188,9 @@ for (mod in df_sources$model) {
   walk(ff, \(f) future_walk(f, fs::file_delete))
   
 }
-  
+
 
 # clean up
 fs::dir_delete(dir_tmp)
-
-
-
-
-
-
-
-
-
 
 

@@ -1,13 +1,11 @@
 
 # SCRIPT TO CALCULATE THE BASELINE (1991-2020) 
 # DISTRIBUTION PARAMETERS OF PRECIP, TAS, AND 3-MONTH 
-# ROLLING SUM OF WATER BLANACE BASED ON ERA5 DATA
+# ROLLING SUM OF WATER BALANCE WITH ERA5 DATA
 
 # WATER BALANCE PARAMETERS ARE USED TO GET MONITOR 
-# PERCENTILES
-
-# PRECIP AND TAS PARAMETERS ARE USED TO BIAS-CORRECT
-# NMME DATA
+# PERCENTILES. PRECIP AND TAS PARAMETERS ARE USED TO 
+# BIAS-CORRECT NMME DATA
 
 
 
@@ -22,7 +20,7 @@ plan(multicore)
 
 # load special functions
 source("https://raw.github.com/carlosdobler/spatial-routines/master/general_tools.R")
-source("monitor_forecast/functions_monitor.R")
+source("monitor_forecast/functions.R")
 
 
 # temporary directory to save files
@@ -47,15 +45,22 @@ date_vector <-
 
 vars <- c("total_precipitation", "2m_temperature")
 
-walk(vars, \(var) {
-  
-  ff <- 
-    rt_gs_list_files(str_glue("{dir_gs}/monthly_means/{var}")) |> 
-    str_subset(str_flatten(seq(year(first(date_vector)), year(last(date_vector))), "|"))
-  
-  rt_gs_download_files(ff, dir_tmp)
-  
-})
+ff <- 
+  map(vars, \(var) {
+    
+    ff <- 
+      rt_gs_list_files(str_glue("{dir_gs}/monthly_means/{var}")) |> 
+      str_subset(str_flatten(seq(year(first(date_vector)), year(last(date_vector))), "|"))
+    
+    # ff <- 
+    #   rt_gs_download_files(ff, dir_tmp)
+    ff <- 
+      ff |> 
+      map_chr(\(f) str_glue("{dir_tmp}/{fs::path_file(f)}"))
+
+    return(ff)
+        
+  })
 
 
 
@@ -68,19 +73,42 @@ heat_vars <- heat_index_var_generator()
 
 # 3A. CALCULATE WATER BALANCE ----
 
-# wb_calculator will also provide tas and pr data
-
 ss <- 
-  date_vector |> 
-  future_map(wb_calculator, dir = dir_tmp, heat_vars = heat_vars)
-                                  # ^ change to use ff from step 1
+  map(date_vector, \(d) {
+    
+    s_tas <-
+      read_ncdf(str_glue("{dir_tmp}/era5_2m-temperature_mon_{as_date(d)}.nc")) |>
+      suppressMessages() |>
+      adrop()
+      
+    
+    s_pr <-
+      read_ncdf(str_glue("{dir_tmp}/era5_total-precipitation_mon_{as_date(d)}.nc")) |>
+      suppressMessages() |>
+      adrop()
+      
+    
+    s_wb <- 
+      wb_calculator(d, 
+                    s_tas |> 
+                      setNames("tas") |> 
+                      mutate(tas = tas |> units::set_units(degC)), 
+                    s_pr |> 
+                      setNames("pr"), 
+                    heat_vars)
+    
+    list(wb = s_wb, tas = s_tas, pr = s_pr)
+    
+  })
+
 
 ss <- 
   ss |> 
   transpose() |> 
   map(\(x) do.call(c, c(x, along = "time"))) |> 
-  map(\(x) x |> st_set_dimensions("time", seq(as_date("1990-01-01"), as_date("2020-12-01"), by = "1 month")))
-                                            # ^ date_vector ?
+  map(\(x) x |> st_set_dimensions("time", values = date_vector))
+
+
 
 
 # 4. LAND MASK ----
@@ -243,7 +271,7 @@ ss |>
             
             else {
               
-              x[x == 0] <- 1e-5
+              x[x == 0] <- 1e-10
               lmoms <- lmom::samlmu(x)
               params <- lmom::pelgam(lmoms)
               
@@ -264,7 +292,7 @@ ss |>
       f <- 
         case_when(i == "wb" ~ str_glue("{dir_tmp}/era5_water-balance-th-rollsum3_mon_log-params_1991-2020_{str_pad(mon, 2, 'left', '0')}.nc"),
                   i == "tas" ~ str_glue("{dir_tmp}/era5_2m-temperature_mon_norm-params_1991-2020_{str_pad(mon, 2, 'left', '0')}.nc"),
-                  i == "pr" ~ str_glue("{dir_tmp}/era5_total-precipitation-th-rollsum3_mon_gamma-params_1991-2020_{str_pad(mon, 2, 'left', '0')}.nc"))
+                  i == "pr" ~ str_glue("{dir_tmp}/era5_total-precipitation_mon_gamma-params_1991-2020_{str_pad(mon, 2, 'left', '0')}.nc"))
       
       
       rt_write_nc(r, f)

@@ -1,24 +1,105 @@
 
-
-# table of data sources
-df_sources <- 
+heat_index_var_generator <- function() {
   
-  bind_rows(
+  # download climatological annual heat index file
+  # (generated with `monitor_forecast/annual_heat_index_era.R` script)
+  str_glue("gcloud storage cp gs://clim_data_reg_useast1/era5/climatologies/era5_heat-index_yr_1991-2020.nc {tempdir()}") |>  
+    system(ignore.stderr = T, ignore.stdout = T)
+  
+  # read file
+  s_hi <- 
+    str_glue("{tempdir()}/era5_heat-index_yr_1991-2020.nc") %>% 
+    read_ncdf() %>% 
+    suppressMessages() |> 
+    mutate(ann_h_ind = round(ann_h_ind, 2))
+  
+  # delete file
+  fs::file_delete(str_glue("{tempdir()}/era5_heat-index_yr_1991-2020.nc"))
+  
+  
+  # calculate alpha
+  s_alpha <- 
+    s_hi %>% 
+    mutate(alpha = (6.75e-7 * ann_h_ind^3) - (7.71e-5 * ann_h_ind^2) + 0.01792 * ann_h_ind + 0.49239) %>% 
+    select(alpha)
+  
+  
+  # calculate daylight duration (one for each calendar month)
+  # reference for coefficients:
+  # https://github.com/sbegueria/SPEI/blob/master/R/thornthwaite.R#L128-L140
+  
+  K_mon <- 
+    map2(seq(15,365, by = 30), # Julian day (mid-point)
+         c(31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31), # days/month
+         \(J, days_in_mon){
+           
+           s_hi %>% 
+             st_dim_to_attr(2) %>% 
+             mutate(tanLat = tan(latitude/57.2957795),
+                    Delta = 0.4093 * sin(((2 * pi * J) / 365) - 1.405),
+                    tanDelta = tan(Delta),
+                    tanLatDelta = tanLat * tanDelta,
+                    tanLatDelta = ifelse(tanLatDelta < (-1), -1, tanLatDelta),
+                    tanLatDelta = ifelse(tanLatDelta > 1, 1, tanLatDelta),
+                    omega = acos(-tanLatDelta),
+                    N = 24 / pi * omega,
+                    K = N / 12 * days_in_mon / 30) %>% 
+             select(K)
+           
+         })
+  
+  r <- list(s_hi = s_hi, s_alpha = s_alpha, K_mon = K_mon)
+  
+  return(r)
+  
+}
+
+
+
+# *****
+
+
+wb_calculator <- function(d, s_tas, s_pr, heat_vars) {
+  
+  # ARGUMENTS:
+  # * d = date to process
+  # * s_tas = stars obj of average temp; variable should be named tas with units degC
+  # * s_pr = stars obj of mean daily precip; variable should be named pr with units m
+  # * heat_vars = list obtained with heat_index_generator function
+  # * tas_pr = should underlying tas and pr data be provided?
+  
+  
+  # calculate PET
+  s_pet <-
+    c(s_tas |> units::drop_units(),
+      heat_vars$s_hi, heat_vars$s_alpha, pluck(heat_vars$K_mon, month(d))) |>
     
-    tibble(model = "canesm5",          end_hindcast = as_date("2020-12-01"), model_cast_url = "CanSIPS-IC4/.CanESM5/.{cast}"),
-    tibble(model = "gem5p2-nemo",      end_hindcast = as_date("2020-12-01"), model_cast_url = "CanSIPS-IC4/.GEM5.2-NEMO/.{cast}"),
-    tibble(model = "gfdl-spear",       end_hindcast = as_date("2020-12-01"), model_cast_url = "GFDL-SPEAR/.{cast}"),
-    tibble(model = "cola-rsmas-cesm1", end_hindcast = NA,                    model_cast_url = "COLA-RSMAS-CESM1"),
-    tibble(model = "cola-rsmas-ccsm4", end_hindcast = NA,                    model_cast_url = "COLA-RSMAS-CCSM4"),
-    tibble(model = "nasa-geoss2s",     end_hindcast = as_date("2017-01-01"), model_cast_url = "NASA-GEOSS2S/.{cast}"),
-    tibble(model = "ncep-cfsv2",       end_hindcast = as_date("2011-03-01"), model_cast_url = "NCEP-CFSv2/.{cast}")
-    
-  )
+    mutate(tas = if_else(tas < 0, 0, tas),
+           pet = K * 16 * (10 * tas / ann_h_ind)^alpha,
+           pet = if_else(is.na(pet) | is.infinite(pet), 0, pet),
+           pet = pet |> units::set_units(mm) |> units::set_units(m),
+           pet = pet/days_in_month(str_glue("1970-{month(d)}-01"))) |>
+    select(pet)
+  
+  
+  # calculate water balance
+  s_wb <- 
+    c(s_pr, s_pet) |> 
+    mutate(wb = pr - pet) |> 
+    select(wb)
+  
+  return(s_wb)
+  
+}
+
+
+
+# *****
 
 
 # function to generate an url to download forecast data from IRI
 
-url_generator <- function(model, date, variable, lead = 5) {
+nmme_url_generator <- function(model, date, variable, lead = 5) {
   
   # ARGUMENTS:
   # - model: model name
@@ -41,7 +122,7 @@ url_generator <- function(model, date, variable, lead = 5) {
               model == "ncep-cfsv2" & date > src$end_hindcast ~ "FORECAST/.PENTAD_SAMPLES",
               model != "ncep-cfsv2" & date <= src$end_hindcast ~ "HINDCAST",
               model != "ncep-cfsv2" & date > src$end_hindcast ~ "FORECAST")
-      
+  
   # glue model part     
   model_cast <- 
     src$model_cast_url |> 
@@ -54,12 +135,15 @@ url_generator <- function(model, date, variable, lead = 5) {
 
 
 
+# *****
+
+
 
 # function to format IRI's ncdfs into a simpler form:
 # four dimensions only (lat, lon, member, lead) and with
 # existing units
 
-formatter <- function(f, variable, lead = 5) {
+nmme_formatter <- function(f, variable, lead = 5) {
   
   # ARGUMENTS:
   # - f: file name of IRI ncdf
@@ -99,56 +183,77 @@ formatter <- function(f, variable, lead = 5) {
 
 
 
+# *****
+
+
 # function to write formatted stars obj to ncdf
 
 write_nc <- function(stars_obj, f) {
   
+  dims <- vector("list", length(dim(stars_obj)))
+  names(dims) <- names(dim(stars_obj))
   
   # define dimensions
-  dim_x <- 
+  dims[[1]] <- 
     ncdf4::ncdim_def(name = names(st_dimensions(stars_obj)[1]), 
                      units = "degrees_east", 
                      vals = stars_obj |> st_get_dimension_values(1))
   
-  dim_y <- 
+  dims[[2]] <- 
     ncdf4::ncdim_def(name = names(st_dimensions(stars_obj)[2]), 
                      units = "degrees_north", 
                      vals = stars_obj |> st_get_dimension_values(2))
   
-  dim_l <- 
-    ncdf4::ncdim_def(name = names(st_dimensions(stars_obj)[3]), 
-                     units = "", 
-                     vals = stars_obj |> st_get_dimension_values(3)) # lead dim
-  
-  dim_m <- 
-    ncdf4::ncdim_def(name = names(st_dimensions(stars_obj)[4]), 
-                     units = "", 
-                     vals = stars_obj |> st_get_dimension_values(4)) # member dim
   
   
-  # define variables
-  vari <- 
-    ncdf4::ncvar_def(name = names(stars_obj),
-                     units = stars_obj |> pull() |> units::deparse_unit(),
-                     dim = list(dim_x, dim_y, dim_l, dim_m))
+  extra_dim_names <- names(dim(stars_obj)) |> tail(-2)
+  
+  for (dimen in extra_dim_names) {
+    
+    dims[[dimen]] <- ncdf4::ncdim_def(name = dimen, 
+                                      units = "", 
+                                      vals = seq(dim(stars_obj)[dimen]))
+    
+  }
+  
+  
+  var_names <- names(stars_obj)
+  
+  var_units <- map_chr(seq_along(var_names), function(x) {
+    
+    un <- try(units::deparse_unit(pull(stars_obj)), silent = T)
+    if (class(un) == "try-error") un <- ""
+    return(un)
+    
+  })
+  
+  varis <- 
+    purrr::map2(var_names, var_units, 
+                ~ncdf4::ncvar_def(name = .x,
+                                  units = .y,
+                                  dim = dims))
+  
+  
   
   # create file
   ncnew <- 
     ncdf4::nc_create(filename = f, 
-                     vars = vari,
+                     vars = varis,
                      force_v4 = TRUE)
   
   # global attribute
   ncdf4::ncatt_put(ncnew,
                    varid = 0,
-                   attname = "source_code",
+                   attname = "source code",
                    attval = "https://github.com/carlosdobler/drought/tree/main/monitor_forecast")
   
   
   # write data
-  ncdf4::ncvar_put(nc = ncnew, 
-                   varid = vari, 
-                   vals = stars_obj |> pull())
+  walk(seq_along(var_names),
+       ~ncdf4::ncvar_put(nc = ncnew, 
+                         varid = varis[[.x]], 
+                         vals = stars_obj |> select(all_of(.x)) |> pull()))
+  
   
   ncdf4::nc_close(ncnew)
   
