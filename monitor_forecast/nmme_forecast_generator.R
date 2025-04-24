@@ -169,7 +169,7 @@ era_2months_wb <-
 
 
 
-# NMME SECTION ---------------------------------------------------------------
+# NMME SECTION ----------------------------------------------------------------
 
 # Downloads a month of NMME tas and precip data (with a 6-month lead). Bias-adjusts 
 # it with ERA5 distr parameters. Calculates water balance. Roll-sums with two 
@@ -180,10 +180,18 @@ vars_nmme <- c("prec", "tref") |> set_names(c("pr", "tas"))
 
 
 
+
+## BIAS CORRECT PRECIP AND TAS ------------------------------------------------
+
+print(str_glue("BIAS CORRECTING..."))
+
 # loop through models
-walk(df_sources$model |> set_names(), \(mod){
+walk(df_sources$model |> set_names(), \(mod){                                # ***************
   
   # mod <- df_sources$model[1]
+  
+  print(str_glue(" "))
+  print(str_glue("* MODEL {which(mod == df_sources$model)} / {nrow(df_sources)}"))
   
   
   s_1model <- 
@@ -195,13 +203,19 @@ walk(df_sources$model |> set_names(), \(mod){
       # var = "tref"
       # v = "tas"
       
+      print(str_glue("* * VARIABLE {which(var == vars_nmme)} / {length(vars_nmme)}"))
+      
+      
       var_l <- 
         case_when(var == "prec" ~ "precipitation",
                   var == "tref" ~ "average-temperature")
       
       
       
-      # download and read nmme data
+      ### DOWNLOAD AND LOAD FORECAST AND NMME DISTRIBUTION PARAMS ------------
+      
+      
+      # download and read nmme forecast
       
       url <- 
         nmme_url_generator(mod,
@@ -269,7 +283,7 @@ walk(df_sources$model |> set_names(), \(mod){
       
       
       
-      # BIAS CORRECTION
+      ### BIAS CORRECTION -----------------------------------------------------
       
       # loop through lead months
       
@@ -277,6 +291,8 @@ walk(df_sources$model |> set_names(), \(mod){
         map(seq_along(dates_fcst), \(d_fcst_in){
           
           # d_fcst_in <- 1
+          
+          print(str_glue("* * * LEAD {d_fcst_in} / {length(dates_fcst)}"))
           
           # era params for 1 lead month
           era_params_1mon <- 
@@ -304,7 +320,7 @@ walk(df_sources$model |> set_names(), \(mod){
             map(seq(dim(fcst_1mon)[3]), \(mem){
               
               
-              print(str_glue("  {mod}  |  {var}  |  lead {d_fcst_in}  |  member {mem}"))
+              print(str_glue("* * * * MEMBER {mem} / {dim(fcst_1mon)[3]}"))
               
               
               # calculate quantile of nmme data
@@ -401,14 +417,29 @@ walk(df_sources$model |> set_names(), \(mod){
   s_1model <- 
     do.call(c, unname(s_1model))
   
-  write_rds(s_1model, str_glue("{dir_tmp}/{mod}_bias-corr-vars.rds"))
+  write_rds(s_1model, str_glue("{dir_tmp}/bias-corr-vars_{mod}.rds"))
   
+})
   
+
+
+
+
+## CALCULATE WB AND ITS ANOMALIES ---------------------------------------------
+
   
+
+print(str_glue("CALCULATING WB AND ANOMALIES..."))
+
+walk(df_sources$model |> set_names(), \(mod){                                # **************
   
+  print(str_glue(" "))
+  print(str_glue("* MODEL {which(mod == df_sources$model)} / {nrow(df_sources)}"))
   
+  s_1model <- 
+    str_glue("{dir_tmp}/bias-corr-vars_{mod}.rds") |> 
+    read_rds()
   
-  # CALCULATE WB QUANTILES (ANOMALIES)
   
   s_1model_wb <-
     
@@ -417,9 +448,7 @@ walk(df_sources$model |> set_names(), \(mod){
       
       # mem = 1
       
-      
-      print(str_glue("  {mod}  |  wb quantiles  |  member {mem}"))
-      
+      print(str_glue("* * MEMBER {mem} / {dim(s_1model)['M']}"))
       
       
       # tas and pr data 
@@ -500,20 +529,24 @@ walk(df_sources$model |> set_names(), \(mod){
   s_1model_wb <- 
     do.call(c, c(s_1model_wb, along = "M"))
   
-  write_rds(s_1model_wb, str_glue("{dir_tmp}/{mod}_wb-quantiles.rds"))
+  write_rds(s_1model_wb, str_glue("{dir_tmp}/wb-quantiles_{mod}.rds"))
   
   
 })
 
-    
-wb_quantiles <- 
-  str_glue("{dir_tmp}/{df_sources$model}_wb-quantiles.rds") |> 
-  map(\(f){
-    
-    read_rds(f)
-    
-  })
+ 
 
+
+
+# FINAL STATS
+
+ff_wb_quantiles_all_models <-
+  str_glue("{dir_tmp}/wb-quantiles_{df_sources$model}.rds")                                                                      # **********
+
+   
+wb_quantiles <- 
+  ff_wb_quantiles_all_models |> 
+  map(\(f) read_rds(f))
 
 wb_quantiles <- 
   do.call(c, c(wb_quantiles, along = "M"))
@@ -524,18 +557,33 @@ wb_quantiles_stats <-
   st_apply(c(1,2,3), \(x) {
     
     if (any(is.na(x))) {
-      c(mean = NA, sd = NA, agree = NA)
+      c(mean = NA, mode = NA, agree = NA, `5%` = NA, `20%` = NA, `50%` = NA, `80%` = NA, `95%` = NA)
     } else {
       
-      mean_perc <- mean(x)
+      mean_perc <- mean(x) |> round(2)
       
-      sd_perc <- sd(x)
+      # mode (most common decile)
+      mode_perc <-
+        cut(x, seq(0,1,0.1), labels = seq(0,0.9,0.1)) |> 
+        table() |> 
+        which.max() |> 
+        names() |> 
+        as.numeric() # lower bound
+        
       
-      # how many members are in the same quintile as the mean
-      upper_lim <- ceiling(mean_perc / 0.2) * 0.2
-      agree <- mean(x < upper_lim & x > (upper_lim-0.2))
+      # # how many members are in the same tercile as the mean
+      # upper_lim <- ceiling(mean_perc / (1/3)) * (1/3)
+      # agree <- mean(x < upper_lim & x > (upper_lim-(1/3)))
       
-      c(mean = mean_perc, sd = sd_perc, agree = agree)
+      # how many memebers are in the same quartile, centered on the most common decile
+      # add 0.05 to center the bin
+      # agree <- round(mean(x < mean_perc+0.05+(1/4/2) & x > mean_perc+0.05-(1/4/2))*100)
+      agree <- round(mean(x < mode_perc+0.2 & x > mode_perc-0.1)*100)
+      
+      q <- quantile(x, c(0.05, 0.2, 0.5, 0.8, 0.95)) |> round(2)
+
+            
+      c(mean = mean_perc, mode = mode_perc+0.05, agree = agree, q)
     }
   },
   .fname = "stats") |> 
@@ -548,6 +596,12 @@ rt_write_nc(wb_quantiles_stats, f_name, daily = F,
             gatt_name = "source code", 
             gatt_val = "https://github.com/carlosdobler/drought/drought_monitor")
 
+"gcloud storage mv {f_name} gs://clim_data_reg_useast1/nmme/monthly/ensemble/" |> 
+  str_glue() |> 
+  system()
 
+
+# clean up
+fs::dir_delete(dir_tmp)
 
 

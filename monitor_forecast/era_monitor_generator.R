@@ -85,6 +85,8 @@ if (date_to_proc %in% existing_dates) {
     
     reticulate::use_python(python = "/usr/bin/python3")
     cdsapi <- reticulate::import("cdsapi")
+    # reticulate::py_require("cdsapi")
+    # cdsapi <- reticulate::import("cdsapi")
     
   }
   
@@ -179,6 +181,7 @@ if (date_to_proc %in% existing_dates) {
   # ff_wb <- 
   #   
   
+  # ************** block 01 *************************************************** 
   
   s_wb <- 
     map(tri_month, \(d) {    # for each month
@@ -220,6 +223,8 @@ if (date_to_proc %in% existing_dates) {
   s_wb_rolled <- 
     s_wb |> 
     st_apply(c(1,2), sum, .fname = "wb_rollsum3", FUTURE = T)
+  
+  # ************** end of block 01 ********************************************
   
   
   
@@ -267,6 +272,9 @@ if (date_to_proc %in% existing_dates) {
   
   # save result
   
+  
+  # ************* block 2 *****************************************************
+  
   res_file <- 
     str_glue("era5_water-balance-perc-w3_bl-1991-2020_mon_{date_to_proc}.nc")
   
@@ -281,9 +289,10 @@ if (date_to_proc %in% existing_dates) {
   # upload to gcloud
   # str_glue("gsutil mv {res_path} {dir_gs}/water_balance_th_perc/") %>% 
   #   system(ignore.stdout = T, ignore.stderr = T)
-  str_glue("gsutil mv {res_path} gs://drought-monitor/input_data/raster_monthly/") %>%
+  str_glue("gcloud storage mv {res_path} gs://drought-monitor/historical/") %>%
     system(ignore.stdout = T, ignore.stderr = T)
   
+  # ************* end of block 2 ***********************************************
   
   
   fs::dir_delete(dir_tmp)  

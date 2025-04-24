@@ -1,6 +1,14 @@
 
+
+# integration window
+k <- 12
+
+
+
+
+
 # SCRIPT TO CALCULATE THE BASELINE (1991-2020) 
-# DISTRIBUTION PARAMETERS OF PRECIP, TAS, AND 3-MONTH 
+# DISTRIBUTION PARAMETERS OF PRECIP, TAS, AND X-MONTH 
 # ROLLING SUM OF WATER BALANCE WITH ERA5 DATA
 
 # WATER BALANCE PARAMETERS ARE USED TO GET MONITOR 
@@ -52,11 +60,11 @@ ff <-
       rt_gs_list_files(str_glue("{dir_gs}/monthly_means/{var}")) |> 
       str_subset(str_flatten(seq(year(first(date_vector)), year(last(date_vector))), "|"))
     
+    ff <-
+      rt_gs_download_files(ff, dir_tmp)
     # ff <- 
-    #   rt_gs_download_files(ff, dir_tmp)
-    ff <- 
-      ff |> 
-      map_chr(\(f) str_glue("{dir_tmp}/{fs::path_file(f)}"))
+    #   ff |> 
+    #   map_chr(\(f) str_glue("{dir_tmp}/{fs::path_file(f)}"))
 
     return(ff)
         
@@ -190,8 +198,8 @@ ss |>
       print(str_glue("var: {i}  |  month: {mon}"))
       
       
-      # if variable = wb, for each year, subset month mon plus 2 prior, 
-      # then aggregate (rollsum 3-month window), and then concatenate
+      # if variable = wb, for each year, subset month mon plus k-1 prior, 
+      # then aggregate (rollsum k-month window), and then concatenate
       if (i == "wb") {
         
         m <- 
@@ -201,11 +209,12 @@ ss |>
             d <- as_date(str_glue("{yr}-{mon}-01"))
             
             
-            # subset 1 month and 2 prior > aggregate
+            # subset 1 month and k prior > aggregate
+            nn <- str_glue("wb_rollsum{k}")
             s |> 
-              filter(time %in% seq(d-months(2), d, by = "1 month")) |> 
-              st_apply(c(1,2), sum, .fname = "wb_rollsum3", FUTURE = T) |> 
-              mutate(wb_rollsum3 = wb_rollsum3 |> units::set_units(m))
+              filter(time %in% seq(d-months(k-1), d, by = "1 month")) |> 
+              st_apply(c(1,2), sum, .fname = nn, FUTURE = T) |> 
+              mutate(!!sym(nn) := units::set_units(!!sym(nn), m))
             
           })
         
@@ -267,9 +276,7 @@ ss |>
               
               params <- c(alpha = -9999, beta = -9999)
               
-            }
-            
-            else {
+            } else {
               
               x[x == 0] <- 1e-10
               lmoms <- lmom::samlmu(x)
@@ -290,7 +297,7 @@ ss |>
       # save results
       
       f <- 
-        case_when(i == "wb" ~ str_glue("{dir_tmp}/era5_water-balance-th-rollsum3_mon_log-params_1991-2020_{str_pad(mon, 2, 'left', '0')}.nc"),
+        case_when(i == "wb" ~ str_glue("{dir_tmp}/era5_water-balance-th-rollsum{k}_mon_log-params_1991-2020_{str_pad(mon, 2, 'left', '0')}.nc"),
                   i == "tas" ~ str_glue("{dir_tmp}/era5_2m-temperature_mon_norm-params_1991-2020_{str_pad(mon, 2, 'left', '0')}.nc"),
                   i == "pr" ~ str_glue("{dir_tmp}/era5_total-precipitation_mon_gamma-params_1991-2020_{str_pad(mon, 2, 'left', '0')}.nc"))
       
