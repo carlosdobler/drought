@@ -44,13 +44,14 @@ import_areas <- function(country = NA){
 
 
 
-# areas <- import_areas()
-areas <- import_areas("United States")
+areas <- import_areas()
+# areas <- import_areas("United States")
 
 # PARAMETER 1 **************
 
-# area <- "Brazil"
-area <- "Texas"
+area <- "Brazil"
+# area <- "Austria"
+# area <- "Texas"
 
 # **************************
 
@@ -64,8 +65,8 @@ area_geom <-
 # PARAMETER 2 *************
 
 # crop <- NA
-# crop <- "coffee"
-crop <- "cotton"
+crop <- "coffee-all"
+# crop <- "cotton"
 
 # *************************
 
@@ -80,7 +81,7 @@ if (is.na(crop)) {
 
 } else {
   
-  f <- str_glue("crop_production_regridded_{crop}.tif")
+  f <- str_glue("crop_production_era5-grid_{crop}.tif")
   
   str_glue("gcloud storage cp gs://drought-monitor/spam/{f} .") |> 
     system()
@@ -107,7 +108,7 @@ if (is.na(crop)) {
 
 # PARAMETER 3 ************
 
-windw <- 3
+windw <- 12
 
 # ************************
 
