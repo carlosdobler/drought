@@ -96,11 +96,41 @@ load_data <- function(dir_origin_cloud, # bucket dir where all vars are located
 
 
 
+distr_params_apply <- function(x, ...){
+  
+  if(any(is.na(x))) {
+    
+    params <-
+      rep(NA, length(param_names)) |>
+      set_names(param_names)
+    
+  } else if (length(unique(x)) == 1){
+    
+    params <-
+      rep(-9999, length(param_names)) |>
+      set_names(param_names)
+    
+  } else {
+    
+    params <- 
+      distribution(samlmu(x))
+    
+  }
+  
+  return(params)
+  
+}
+
+
+
+
+
 distr_params <- function(s,
                          dir_tmp_local,
                          dir_output_cloud,
                          distribution,
-                         f_name_root) {
+                         f_name_root,
+                         process) {
   
   fs::dir_create(dir_tmp_local)
   
@@ -114,38 +144,34 @@ distr_params <- function(s,
     
     print(str_glue("fitting month {mon}"))
     
-    r <- 
-      s |>
-      filter(month(time) == mon) |>
-      units::drop_units() |>
+    if (process == "era"){
       
-      st_apply(c(1,2), \(x){
+      r <- 
+        s |>
+        filter(month(time) == mon) |>
+        units::drop_units() |>
         
-        if(any(is.na(x))) {
-          
-          params <-
-            rep(NA, length(param_names)) |>
-            set_names(param_names)
-          
-        } else if (length(unique(x)) == 1){
-          
-          params <-
-            rep(-9999, length(param_names)) |>
-            set_names(param_names)
-          
-        } else {
-          
-          params <- 
-            distribution(samlmu(x))
-          
-        }
+        st_apply(c(1,2), 
+                 distr_params_apply,
+                 FUTURE = T,
+                 .fname = "params") |> 
+        split("params")
+      
+      
+    } else if (process == "nmme") {
+      
+      r <- 
+        s |>
+        filter(month(time) == mon) |>
+        units::drop_units() |>
         
-        return(params)
-        
-      },
-      FUTURE = T,
-      .fname = "params") |> 
-      split("params")
+        st_apply(c(1,2,3), 
+                 distr_params_apply,
+                 FUTURE = T,
+                 .fname = "params") |> 
+        split("params")
+      
+    }
     
     
     # save results
@@ -157,15 +183,40 @@ distr_params <- function(s,
                 gatt_name = "source code",
                 gatt_val = "https://github.com/carlosdobler/drought/distribution_parameters")
     
-    # move to cloud
-    str_glue("gcloud storage mv {f} {dir_output_cloud}") |>
-      system(ignore.stdout = T, ignore.stderr = T)
+    # # move to cloud
+    # str_glue("gcloud storage mv {f} {dir_output_cloud}") |>
+    #   system(ignore.stdout = T, ignore.stderr = T)
     
   })
   
-  fs::dir_delete(dir_tmp_local)
+  # fs::dir_delete(dir_tmp_local)
   
 }
 
+
+
+
+
+rollsum <- function(s, k, suffix_var) {
+  
+  nn <- str_glue("{suffix_var}{k}")
+  dates <- st_get_dimension_values(s, "time")
+  un <- s |> pull() |> units::deparse_unit()
+  
+  s |> 
+    st_apply(c(1,2), \(x){
+      
+      slider::slide_dbl(x,
+                        sum,
+                        .before = k-1,
+                        .complete = T)
+      
+    },
+    .fname = "time") |> 
+    aperm(c(2,3,1)) |> 
+    st_set_dimensions("time", values = dates) |> 
+    setNames(nn) |> 
+    mutate(!!sym(nn) := units::set_units(!!sym(nn), !!un))
+}
 
 

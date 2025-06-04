@@ -16,8 +16,8 @@ options(future.fork.enable = T)
 options(future.rng.onMisuse = "ignore")
 
 # special functions
-source("https://raw.github.com/carlosdobler/spatial-routines/master/general_tools.R")
-source("monitor_forecast/functions.R")
+box::use(../functions/general_tools[...])
+box::use(../functions/drought[...])
 
 # date to process
 source("monitor_forecast/date_to_proc.R")
@@ -34,7 +34,8 @@ dir_gs <- "gs://clim_data_reg_useast1/era5"
 
 # check what dates have already been processed
 existing_dates <- 
-  rt_gs_list_files(str_glue("{dir_gs}/monthly_means/water_balance_th_perc")) |> 
+  rt_gs_list_files(str_glue("gs://drought-monitor/historical")) |> 
+  str_subset(".nc") |> 
   str_sub(-13,-4)
 # CHANGE TO JOSHUA'S BUCKET
 
@@ -181,6 +182,8 @@ if (date_to_proc %in% existing_dates) {
   # ff_wb <- 
   #   
   
+  k = 3
+  
   # ************** block 01 *************************************************** 
   
   s_wb <- 
@@ -200,7 +203,7 @@ if (date_to_proc %in% existing_dates) {
       
       # calculate wb
       s_wb <- 
-        wb_calculator(d, 
+        wb_calculator_th(d, 
                       s_tas |> 
                         setNames("tas") |> 
                         mutate(tas = tas |> units::set_units(degC)), 
@@ -222,7 +225,7 @@ if (date_to_proc %in% existing_dates) {
   # aggregate (rollsum)
   s_wb_rolled <- 
     s_wb |> 
-    st_apply(c(1,2), sum, .fname = "wb_rollsum3", FUTURE = T)
+    st_apply(c(1,2), sum, .fname = str_glue("wb_rollsum{k}"), FUTURE = T)
   
   # ************** end of block 01 ********************************************
   
@@ -276,7 +279,7 @@ if (date_to_proc %in% existing_dates) {
   # ************* block 2 *****************************************************
   
   res_file <- 
-    str_glue("era5_water-balance-perc-w3_bl-1991-2020_mon_{date_to_proc}.nc")
+    str_glue("era5_water-balance-perc-w{k}_bl-1991-2020_mon_{date_to_proc}.nc")
   
   res_path <- 
     str_glue("{dir_tmp}/{res_file}")
@@ -314,6 +317,7 @@ if (date_to_proc %in% existing_dates) {
 #                                           rev = F,
 #                                           limits = c(0,1),
 #                                           n.breaks = 11)
+
 
 
 
