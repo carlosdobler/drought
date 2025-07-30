@@ -167,7 +167,7 @@ rt_write_nc <- function(stars_obj, filename, calendar = NA, gatt_name = NA, gatt
           
           # Obtain calendar type
           feb <- 
-            dim_vals_str[stringr::str_sub(time_vector_str, 6,7) == "02"] # filter feb months
+            time_vector_str[stringr::str_sub(time_vector_str, 6,7) == "02"] # filter feb months
           
           if (length(feb) > 1) {
             

@@ -1,7 +1,8 @@
 
 # MODULES
 rts <- c("general_tools",
-          "drought")
+         "drought",
+         "tile")
 
 # *****
 

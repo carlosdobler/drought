@@ -77,8 +77,7 @@ models <-
   unique()
 
 
-
-for (model in models) {
+for (model in models[-19] |> tail(-13)) {
   
   message(str_glue("  PROCESSING MODEL {which(model == models)} / {length(models)} ({model})"))
   
@@ -112,14 +111,17 @@ for (model in models) {
   
   s_z_nex_grid <- 
     s_z |> 
+    st_warp(st_as_stars(st_bbox(), dx = 0.25)) |> 
     st_warp(st_as_stars(dimensions = st_dimensions(s_ref)[1:2]))
   
   s_gamma_nex_grid <- 
     s_gamma |> 
+    st_warp(st_as_stars(st_bbox(), dx = 0.25)) |> 
     st_warp(st_as_stars(dimensions = st_dimensions(s_ref)[1:2]))
   
   s_tisr_nex_grid <- 
     s_tisr |> 
+    st_warp(st_as_stars(st_bbox(), dx = 0.25)) |> 
     st_warp(st_as_stars(dimensions = st_dimensions(s_ref)[1:2]))
   
   
@@ -362,3 +364,6 @@ for (model in models) {
 
 
 fs::dir_delete(dir_tmp)
+
+# ERROR IN DATA NOTES:
+# - tasmin 1980 of model HadGEM3-GC31-MM is all 0

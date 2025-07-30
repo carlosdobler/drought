@@ -24,7 +24,8 @@ import_areas <- function(country = NA){
     
     temp_file <- 
       rt_gs_download_files("gs://clim_data_reg_useast1/misc_data/admin_units/gadm_lev_1.gpkg", 
-                                         tempdir())
+                           tempdir(),
+                           quiet = T)
     
     geom <- 
       temp_file |> 
@@ -44,14 +45,14 @@ import_areas <- function(country = NA){
 
 
 
-areas <- import_areas()
-# areas <- import_areas("United States")
+# areas <- import_areas()
+areas <- import_areas("United States")
 
 # PARAMETER 1 **************
 
-area <- "Brazil"
+# area <- "United States of America"
 # area <- "Austria"
-# area <- "Texas"
+area <- "Texas"
 
 # **************************
 
@@ -60,13 +61,14 @@ area_geom <-
   areas |> 
   filter(name == area)
 
-
+# st_cast(area_geom, "POLYGON") |> first() -> area_geom
 
 # PARAMETER 2 *************
 
 # crop <- NA
-crop <- "coffee-all"
-# crop <- "cotton"
+# crop <- "coffee-all"
+# crop <- "maize"
+crop <- "cotton"
 
 # *************************
 
@@ -108,7 +110,7 @@ if (is.na(crop)) {
 
 # PARAMETER 3 ************
 
-windw <- 12
+windw <- 3
 
 # ************************
 
@@ -116,7 +118,7 @@ windw <- 12
 
 
 dir_tmp <- 
-  "/mnt/pers_disk/tmp2/"
+  "/mnt/pers_disk/tmp3/"
 
 fs::dir_create(dir_tmp)
 
@@ -183,9 +185,9 @@ df_hist <-
 
 
 if (is.na(crop)) {
-  f_res <- str_glue("water-bal_w{windw}_{str_to_lower(area)}_{first(df_hist$date)}_{last(df_hist$date)}.csv")
+  f_res <- str_glue("water-bal_w{windw}_{str_replace_all(str_to_lower(area), ' ', '-')}_{first(df_hist$date)}_{last(df_hist$date)}.csv")
 } else {
-  f_res <- str_glue("water-bal-weighted_w{windw}_{str_to_lower(area)}_{crop}_{first(df_hist$date)}_{last(df_hist$date)}.csv")
+  f_res <- str_glue("water-bal-weighted_w{windw}_{str_replace_all(str_to_lower(area), ' ', '-')}_{crop}_{first(df_hist$date)}_{last(df_hist$date)}.csv")
 } 
 
 df_hist |> 
@@ -205,15 +207,21 @@ df_hist |>
 # FORECAST
 
 source("monitor_forecast/date_to_proc.R")
+date_to_proc <- as_date(date_to_proc) + months(1)
+date_to_proc <- date_to_proc |> as.character()
 
-f <- str_glue("nmme_ensemble_water-balance-perc-w{windw}_mon_{date_to_proc}_plus5.nc")
+# f <- str_glue("nmme_ensemble_water-balance-perc-w{windw}_mon_{date_to_proc}_plus5.nc")
 
-"gcloud storage cp gs://drought-monitor/forecast/{f} {dir_tmp}" |> 
-  str_glue() |> 
-  system()
+f <- 
+  rt_gs_list_files("gs://drought-monitor/forecast/") |> 
+  str_subset(date_to_proc) |> 
+  str_subset(str_glue("perc-w{windw}_mon"))
+
+f <- 
+  rt_gs_download_files(f, dir_tmp, quiet = T)
 
 s <- 
-  read_ncdf(str_glue("{dir_tmp}/{f}")) |> 
+  read_ncdf(str_glue("{f}")) |> 
   suppressMessages()
 
 df_fcst <- 
@@ -228,7 +236,7 @@ df_fcst <-
       mask_regrid |> 
       c(s_1l) |> 
       as_tibble() |> 
-      filter(!is.na(p) & !is.na(mean))
+      filter(!is.na(p) & !is.na(`50%`))
     
     
     if(!is.na(crop)) {
@@ -261,9 +269,9 @@ df_fcst <-
   mutate(date = st_get_dimension_values(s, "L") |> as_date(), .before = 1)
 
 if (is.na(crop)) {
-  f_res <- str_glue("water-bal_w{windw}_{str_to_lower(area)}_forecast_{first(df_fcst$date)}_{last(df_fcst$date)}.csv")
+  f_res <- str_glue("water-bal_w{windw}_{str_replace_all(str_to_lower(area), ' ', '-')}_forecast_{first(df_fcst$date)}_{last(df_fcst$date)}.csv")
 } else {
-  f_res <- str_glue("water-bal-weighted_w{windw}_{str_to_lower(area)}_{crop}_forecast_{first(df_fcst$date)}_{last(df_fcst$date)}.csv")
+  f_res <- str_glue("water-bal-weighted_w{windw}_{str_replace_all(str_to_lower(area), ' ', '-')}_{crop}_forecast_{first(df_fcst$date)}_{last(df_fcst$date)}.csv")
 } 
 
 df_fcst |> 

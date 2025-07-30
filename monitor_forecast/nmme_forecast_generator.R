@@ -19,6 +19,7 @@ library(stars)
 library(furrr)
 
 options(future.fork.enable = T)
+options(future.globals.maxSize = 4000 * 1024^2)
 plan(multicore)
 
 
@@ -28,6 +29,7 @@ box::use(../functions/drought[...])
 
 # load date to process
 source("monitor_forecast/date_to_proc.R")
+date_to_proc <- as.character(as_date(date_to_proc) + months(1))
 
 # load nmme data source table
 source("monitor_forecast/nmme_sources_df.R")
@@ -193,10 +195,10 @@ vars_nmme <- c("prec", "tref") |> set_names(c("pr", "tas"))
 
 ## BIAS CORRECT PRECIP AND TAS ------------------------------------------------
 
-print(str_glue("BIAS CORRECTING..."))
+message(str_glue("BIAS CORRECTING..."))
 
 # loop through models
-walk(df_sources$model |> set_names(), \(mod){                                # ***************
+walk(df_sources$model |> set_names(), \(mod){
   
   # mod <- df_sources$model[1]
   
@@ -377,7 +379,11 @@ walk(df_sources$model |> set_names(), \(mod){                                # *
                   }
                 },
                 .fname = "quantile",
-                FUTURE = T) |> 
+                FUTURE = T) 
+              
+              nmme_quantile <- 
+                nmme_quantile|>
+                st_warp(st_as_stars(st_bbox(c(xmin = -180.125, ymin = -90.125, xmax = 179.875, ymax = 90.125), crs = 4326), dx = 0.25)) |> 
                 st_warp(era_params_1mon)
               
               
@@ -451,10 +457,12 @@ walk(df_sources$model |> set_names(), \(mod){                                # *
 
 print(str_glue("CALCULATING WB AND ANOMALIES..."))
 
-walk(df_sources$model |> set_names(), \(mod){                                # **************
+plan(multicore, workers = 2)
+
+walk(df_sources$model |> set_names(), \(mod){
   
-  print(str_glue(" "))
-  print(str_glue("* MODEL {which(mod == df_sources$model)} / {nrow(df_sources)}"))
+  message(" ")
+  message(str_glue("* MODEL {which(mod == df_sources$model)} / {nrow(df_sources)}"))
   
   s_1model <- 
     str_glue("{dir_tmp}/bias-corr-vars_{mod}.rds") |> 
@@ -464,11 +472,11 @@ walk(df_sources$model |> set_names(), \(mod){                                # *
   s_1model_wb <-
     
     # loop through members
-    map(seq(dim(s_1model)["M"]), \(mem){
+    future_map(seq(dim(s_1model)["M"]), \(mem){
       
       # mem = 1
       
-      print(str_glue("* * MEMBER {mem} / {dim(s_1model)['M']}"))
+      # print(str_glue("* * MEMBER {mem} / {dim(s_1model)['M']}"))
       
       
       # tas and pr data 
@@ -580,8 +588,10 @@ walk(df_sources$model |> set_names(), \(mod){                                # *
 # FINAL STATS
 
 ff_wb_quantiles_all_models <-
-  str_glue("{dir_tmp}/wb-quantiles_{df_sources$model}.rds")                                                                      # **********
+  # str_glue("{dir_tmp}/wb-quantiles_{df_sources$model}.rds")                # **********
+  fs::dir_ls(dir_tmp, regexp = "wb-quantiles_")
 
+num_models <- length(ff_wb_quantiles_all_models)  
    
 wb_quantiles <- 
   ff_wb_quantiles_all_models |> 
@@ -592,48 +602,49 @@ wb_quantiles <-
 
 
 wb_quantiles_stats <- 
-  wb_quantiles |> 
+  wb_quantiles |>
   st_apply(c(1,2,3), \(x) {
     
-    if (any(is.na(x))) {
-      c(mean = NA, mode = NA, agree = NA, `5%` = NA, `20%` = NA, `50%` = NA, `80%` = NA, `95%` = NA)
+    if (all(is.na(x))) {
+      # c(mean = NA, mode = NA, agree = NA, `5%` = NA, `20%` = NA, `50%` = NA, `80%` = NA, `95%` = NA)
+      c(`5%` = NA, `20%` = NA, `50%` = NA, `80%` = NA, `95%` = NA)
     } else {
       
-      mean_perc <- mean(x) |> round(2)
+      # mean_perc <- mean(x, na.rm = T) |> round(2)
+      # 
+      # # mode (most common decile)
+      # mode_perc <-
+      #   cut(x, seq(0,1,0.1), labels = seq(0,0.9,0.1)) |> 
+      #   table() |> 
+      #   which.max() |> 
+      #   names() |> 
+      #   as.numeric() # lower bound
+      #   
+      # 
+      # # # how many members are in the same tercile as the mean
+      # # upper_lim <- ceiling(mean_perc / (1/3)) * (1/3)
+      # # agree <- mean(x < upper_lim & x > (upper_lim-(1/3)))
+      # 
+      # # how many memebers are in the same quartile, centered on the (NOT:most common decile) median
+      # # add 0.05 to center the bin
+      # # agree <- round(mean(x < mean_perc+0.05+(1/4/2) & x > mean_perc+0.05-(1/4/2))*100)
+      # # agree <- round(mean(x < mode_perc+0.2 & x > mode_perc-0.1)*100)
+      # agree <- round(mean(x < median(x, na.rm = T)+0.15 & x > median(x, na.rm = T)-0.15)*100)
       
-      # mode (most common decile)
-      mode_perc <-
-        cut(x, seq(0,1,0.1), labels = seq(0,0.9,0.1)) |> 
-        table() |> 
-        which.max() |> 
-        names() |> 
-        as.numeric() # lower bound
-        
-      
-      # # how many members are in the same tercile as the mean
-      # upper_lim <- ceiling(mean_perc / (1/3)) * (1/3)
-      # agree <- mean(x < upper_lim & x > (upper_lim-(1/3)))
-      
-      # how many memebers are in the same quartile, centered on the (NOT:most common decile) median
-      # add 0.05 to center the bin
-      # agree <- round(mean(x < mean_perc+0.05+(1/4/2) & x > mean_perc+0.05-(1/4/2))*100)
-      # agree <- round(mean(x < mode_perc+0.2 & x > mode_perc-0.1)*100)
-      agree <- round(mean(x < median(x)+0.15 & x > median(x)-0.15)*100)
-      
-      q <- quantile(x, c(0.05, 0.2, 0.5, 0.8, 0.95)) |> round(2)
+      q <- quantile(x, c(0.05, 0.2, 0.5, 0.8, 0.95), na.rm = T) |> round(2)
 
             
-      c(mean = mean_perc, mode = mode_perc+0.05, agree = agree, q)
+      # c(mean = mean_perc, mode = mode_perc+0.05, agree = agree, q)
+      return(q)
     }
   },
-  .fname = "stats") #|> 
-  # split("stats")
+  .fname = "stats")
     
 
 c(3,12) |> 
   iwalk(\(k, i){
     
-    f_name <- str_glue("{dir_tmp}/nmme_ensemble_water-balance-perc-w{k}_mon_{date_to_proc}_plus5.nc")
+    f_name <- str_glue("{dir_tmp}/nmme_ensemble_water-balance-perc-w{k}_mon_{date_to_proc}_plus5_{num_models}models.nc")
     print(f_name)
     
     rt_write_nc(wb_quantiles_stats |> select(i) |> split("stats"), 
