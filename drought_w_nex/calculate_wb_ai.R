@@ -305,7 +305,7 @@ for (model in models[-19] |> tail(-13)) {
                 gatt_name = "source_code",
                 gatt_val = "https://github.com/carlosdobler/drought/drought_w_nex/")  
     
-    str_glue("gcloud storage mv {f_res} gs://clim_data_reg_useast1/nex/monthly_aggregates/potential-evapotranspiration-pm/{model}/") |> 
+    str_glue("gcloud storage mv {f_res} gs://clim_data_reg_useast1/nex/monthly_aggregates/potential_evapotranspiration_pm/{model}/") |> 
       system(ignore.stdout = T, ignore.stderr = T)
     
     
@@ -331,7 +331,7 @@ for (model in models[-19] |> tail(-13)) {
                 gatt_name = "source_code",
                 gatt_val = "https://github.com/carlosdobler/drought/drought_w_nex/")  
     
-    str_glue("gcloud storage mv {f_res} gs://clim_data_reg_useast1/nex/monthly_aggregates/water-balance-pm/{model}/") |> 
+    str_glue("gcloud storage mv {f_res} gs://clim_data_reg_useast1/nex/monthly_aggregates/water_balance_pm/{model}/") |> 
       system(ignore.stdout = T, ignore.stderr = T)
     
     # ******
@@ -350,7 +350,7 @@ for (model in models[-19] |> tail(-13)) {
                 gatt_name = "source_code",
                 gatt_val = "https://github.com/carlosdobler/drought/drought_w_nex/")  
     
-    str_glue("gcloud storage mv {f_res} gs://clim_data_reg_useast1/nex/monthly_aggregates/aridity-index-pm/{model}/") |> 
+    str_glue("gcloud storage mv {f_res} gs://clim_data_reg_useast1/nex/monthly_aggregates/aridity_index_pm/{model}/") |> 
       system(ignore.stdout = T, ignore.stderr = T)
     
     
