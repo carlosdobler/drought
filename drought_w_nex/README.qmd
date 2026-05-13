@@ -12,7 +12,7 @@ This directory contains scripts to process NEX-GDDP-CMIP6 climate model data to 
 * `calculate_wb_ai.R`: Computes the monthly Penman-Monteith PET and Water Balance (precipitation minus PET), as well as the annual Aridity Index (AI: ratio of precipitation to PET).
 * `calculate_wb_anom.R`: Calculates water balance percentiles over 3-month and 12-month integration (rolling) windows. It fits a generalized logistic distribution via L-moments to a baseline period (1991-2020), which is then used to derive percentiles for the entire time series (1970-2099). The spatial processing uses a tiling approach to handle large memory requirements.
 
-## Water Balance Percentile Map
+
 
 ```{r}
 #| warning: false

@@ -26,6 +26,4 @@ percentiles. Results are at 1/4 degree, monthly resolution.
   time series (1970-2099). The spatial processing uses a tiling approach
   to handle large memory requirements.
 
-## Water Balance Percentile Map
-
 ![](README_files/figure-commonmark/unnamed-chunk-1-1.png)
