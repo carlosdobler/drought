@@ -1,0 +1,102 @@
+---
+title: "NEX-GDDP-CMIP6 Drought and Aridity Processing"
+format: gfm
+---
+
+This directory contains scripts to process NEX-GDDP-CMIP6 climate model data to calculate water balance anomalies and aridity indices. The workflow computes potential evapotranspiration (PET) and water balance, followed by historical baseline fitting to derive standardized percentiles. Results are at 1/4 degree, monthly resolution.
+
+## Scripts Overview
+
+* `df_nex_files_create.R`: Downloads the index of available NEX-GDDP-CMIP6 files from AWS--including model, scenario, variable, year, and version--and compiles a CSV catalog (`df_nex_files.csv`) containing the latest file versions.
+* `tisr_cal_month_create.R`: Downloads Top of Atmosphere (TOA) incident solar radiation from ERA5 (1970-2000), calculates the multi-year mean for each calendar month, and saves it for use in PET calculations.
+* `calculate_wb_ai.R`: Computes the monthly Penman-Monteith PET and Water Balance (precipitation minus PET), as well as the annual Aridity Index (AI: ratio of precipitation to PET).
+* `calculate_wb_anom.R`: Calculates water balance percentiles over 3-month and 12-month integration (rolling) windows. It fits a generalized logistic distribution via L-moments to a baseline period (1991-2020), which is then used to derive percentiles for the entire time series (1970-2099). The spatial processing uses a tiling approach to handle large memory requirements.
+
+## Water Balance Percentile Map
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+#| fig-width: 8
+#| fig-height: 5
+
+library(stars)
+library(dplyr)
+library(ggplot2)
+library(colorspace)
+library(giscoR)
+
+file_path <- "/mnt/bucket_mine/nex/monthly_aggregates/water_balance_pm_perc/ACCESS-CM2/wb-pm-perc_w12_bl-1991-2020_mon_ACCESS-CM2_NEX_2050.nc"
+
+wb_data <- read_mdim(file_path, proxy = T)
+
+wb_data <-
+    wb_data[,,,7] |>
+    st_as_stars()
+
+wb_data <-
+    wb_data |>
+    adrop() |>
+    st_warp(st_as_stars(st_bbox(), dx = 0.25, values = NA))
+
+# Project to Natural Earth II (ESRI:54078)
+crs_ne2 <- "ESRI:54078"
+
+newgrid <-
+    wb_data |>
+    st_transform(crs_ne2) |>
+    st_bbox() |>
+    st_as_stars(dx = 70000)
+
+wb_data_proj <-
+    wb_data |>
+    st_warp(newgrid)
+
+
+# Outline
+world <-
+  gisco_get_countries(year = "2020", resolution = "60", epsg = "4326") |>
+  filter(CNTR_ID != "AQ") |>   # remove Antarctica
+  st_make_valid() |>
+  select(1)
+
+world <-
+    world |>
+    st_transform(crs_ne2) |>
+    summarize()
+
+wb_data_proj <-
+    wb_data_proj |>
+    st_crop(world)
+
+wb_df <-
+    wb_data_proj |>
+    as_tibble() |>
+    rename(value = 3)
+
+
+ggplot() +
+    geom_raster(data = wb_df, aes(x = x, y = y, fill = value)) +
+    scale_fill_continuous_divergingx(
+        palette = "Spectral",
+        mid = 50,
+        limits = c(0, 100),
+        name = "Percentile   ",
+        na.value = "transparent",
+        guide = guide_colorbar(barwidth = 16, barheight = 0.5)
+    ) +
+    coord_sf(crs = crs_ne2) +
+    theme(
+        legend.position = "bottom",
+        panel.grid = element_line(color = "gray80"),
+        panel.background = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank()
+    ) +
+    labs(
+        caption = "Water Balance Percentiles\nJuly 2050\nModel: ACCESS-CM2",
+        x = NULL, y = NULL
+    )
+
+```
